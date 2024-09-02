@@ -1,0 +1,28 @@
+projects:
+  - name: ""
+    project_id: ""
+    api_user: ""
+    api_key: ""
+    db_username: ""
+    db_password: ""
+    clusters:
+      - cluster_name: "OS-Cluster1"
+        region_name: "AP_SOUTH_2"
+        cloud_provider: "AWS"
+  - name: ""
+    project_id: ""
+    api_user: ""
+    api_key: ""
+    db_username: ""
+    db_password: ""
+    clusters:
+      - cluster_name: "OS-Cluster0"
+        region_name: "AP_SOUTH_2"
+        cloud_provider: "AWS"
+      - cluster_name: "OS-Cluster2"
+        region_name: "US_EAST_1"
+        cloud_provider: "AWS"
+
+disclaimer_agreement: "yes"
+
+//Ensure to update these values are per the environment.
