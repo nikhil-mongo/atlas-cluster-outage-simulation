@@ -2,7 +2,7 @@ import requests
 from requests.auth import HTTPDigestAuth
 import subprocess
 import time
-import threading
+import concurrent.futures
 import re
 import sys
 import yaml
@@ -12,35 +12,19 @@ from datetime import datetime
 
 # Function to set up logging for each project with a timestamp
 def setup_logging(project_name):
-    # Create a logs directory if it doesn't exist
     os.makedirs('logs', exist_ok=True)
-    
-    # Get the current timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Define the log file for this project with a timestamp
     log_filename = os.path.join('logs', f'{project_name}_{timestamp}.log')
-    
-    # Create a logger specifically for this project
     logger = logging.getLogger(project_name)
     logger.setLevel(logging.INFO)
-    
-    # Create a file handler for logging to the project-specific log file
     file_handler = logging.FileHandler(log_filename)
     file_handler.setLevel(logging.INFO)
-    
-    # Create a logging format
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
-    
-    # Add the file handler to the logger
     if not logger.handlers:
         logger.addHandler(file_handler)
-    
-    # Redirect stdout and stderr to the log file
     sys.stdout = open(log_filename, 'a')
     sys.stderr = open(log_filename, 'a')
-    
     return logger
 
 # Disclaimer and Warning
@@ -155,12 +139,18 @@ def start_outage_simulation(api_user, api_key, project_id, cluster_name, cloud_p
 
 def check_simulation_status(api_user, api_key, project_id, cluster_name, connection_string, db_username, db_password, logger, name):
     not_found_count = 0
+    last_node_check_time = time.time()
 
     while True:
         try:
             url = f'https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/clusters/{cluster_name}/outageSimulation'
             response = requests.get(url, headers=headers, auth=HTTPDigestAuth(api_user, api_key))
 
+            # Check and log the primary and secondary nodes every 2 minutes
+            if time.time() - last_node_check_time >= 120:
+                list_primary_secondary_nodes(cluster_name, connection_string, db_username, db_password, project_id, logger, name)
+                last_node_check_time = time.time()
+            
             if response.status_code == 200:
                 if not response.json():
                     logger.info(f'\nSimulation for cluster {cluster_name} in project {name} is complete (empty response).\n')
@@ -171,7 +161,7 @@ def check_simulation_status(api_user, api_key, project_id, cluster_name, connect
                     
                     if simulation_state == 'COMPLETE':
                         break
-                    time.sleep(10)
+                    time.sleep(10)  # Wait for 10 seconds before checking the simulation status again
             elif response.status_code == 404:
                 not_found_count += 1
                 logger.info(f'COMPLETE State received for cluster {cluster_name}. Attempt {not_found_count}/5.')
@@ -179,7 +169,7 @@ def check_simulation_status(api_user, api_key, project_id, cluster_name, connect
                     logger.info(f'Simulation for cluster {cluster_name} in project {name} is considered complete after 5 consecutive COMPLETE state.')
                     break
                 else:
-                    time.sleep(10)
+                    time.sleep(10)  # Wait for 10 seconds before retrying on 404
             else:
                 logger.error(f'Unexpected status code {response.status_code} for cluster {cluster_name} in project {name}')
                 break
@@ -188,67 +178,54 @@ def check_simulation_status(api_user, api_key, project_id, cluster_name, connect
             logger.error(f'Error checking simulation status for cluster {cluster_name} in project {project_id}: {e}')
             break
 
-    list_primary_secondary_nodes(cluster_name, connection_string, db_username, db_password, project_id, logger)
-
 def start_outage_for_project(api_user, api_key, project_id, clusters, db_username, db_password, logger, name):
     cluster_info = get_connection_strings_and_regions(api_user, api_key, get_atlas_api_url(project_id), logger)
     
-    for cluster in clusters:
-        logger.info(f"\nProcessing cluster data: {cluster}")  # Debugging log
-        
-        cluster_name = cluster.get('cluster_name')
-        region_name = cluster.get('region_name')
-        cloud_provider = cluster.get('cloud_provider')
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = []
+        for cluster in clusters:
+            logger.info(f"\nProcessing cluster data: {cluster}")  # Debugging log
+            
+            cluster_name = cluster.get('cluster_name')
+            region_name = cluster.get('region_name')
+            cloud_provider = cluster.get('cloud_provider')
 
-        if cluster_name is None or region_name is None or cloud_provider is None:
-            logger.error("Error: 'cluster_name', 'region_name', or 'cloud_provider' missing in the YAML file for one of the clusters.")
-            continue
+            if cluster_name is None or region_name is None or cloud_provider is None:
+                logger.error("Error: 'cluster_name', 'region_name', or 'cloud_provider' missing in the YAML file for one of the clusters.")
+                continue
 
-        logger.info(f"\nStarting outage simulation for cluster '{cluster_name}'")
+            logger.info(f"\nStarting outage simulation for cluster '{cluster_name}'")
 
-        # Verify that the region is available for this cluster
-        connection_string = None
-        valid_region = False
-        for info in cluster_info:
-            if info[0] == cluster_name:
-                connection_string = info[2]
-                for region, provider in info[1]:
-                    if region == region_name and provider == cloud_provider:
-                        valid_region = True
-                        break
-                break
-        
-        if not connection_string:
-            logger.error(f"Error: Could not find connection string for cluster '{cluster_name}'")
-            continue
-        
-        if not valid_region:
-            logger.error(f"Error: Specified region '{region_name}' with cloud provider '{cloud_provider}' is not valid for cluster '{cluster_name}'")
-            continue
+            connection_string = None
+            valid_region = False
 
-        list_primary_secondary_nodes(cluster_name, connection_string, db_username, db_password, project_id, logger, name)
-        start_outage_simulation(api_user, api_key, project_id, cluster_name, cloud_provider, region_name, logger, name)
-        time.sleep(1)
+            # Check if the region from the YAML file matches any region in the cluster details
+            for info in cluster_info:
+                if info[0] == cluster_name:
+                    connection_string = info[2]
+                    for region, provider in info[1]:
+                        if region == region_name and provider == cloud_provider:
+                            valid_region = True
+                            break
+                    break
 
-    logger.info("\nWaiting for 2 minutes before checking the simulation status...\n")
-    time.sleep(120)
+            if not connection_string:
+                logger.error(f"Error: Could not find connection string for cluster '{cluster_name}'")
+                continue
 
-    threads = []
-    for cluster in clusters:
-        cluster_name = cluster['cluster_name']
-        connection_string = None
-        for info in cluster_info:
-            if info[0] == cluster_name:
-                connection_string = info[2]
-                break
-        
-        if connection_string:
-            thread = threading.Thread(target=check_simulation_status, args=(api_user, api_key, project_id, cluster_name, connection_string, db_username, db_password, logger, name))
-            threads.append(thread)
-            thread.start()
+            if not valid_region:
+                logger.error(f"Error: Specified region '{region_name}' with cloud provider '{cloud_provider}' is not valid for cluster '{cluster_name}'")
+                continue
 
-    for thread in threads:
-        thread.join()
+            list_primary_secondary_nodes(cluster_name, connection_string, db_username, db_password, project_id, logger, name)
+            start_outage_simulation(api_user, api_key, project_id, cluster_name, cloud_provider, region_name, logger, name)
+
+            # Submitting the status check to the thread pool
+            futures.append(executor.submit(check_simulation_status, api_user, api_key, project_id, cluster_name, connection_string, db_username, db_password, logger, name))
+
+        # Wait for all status checks to complete
+        for future in concurrent.futures.as_completed(futures):
+            future.result()  # Raises any exceptions caught during execution
 
 def process_project(project):
     project_id = project['project_id']
@@ -259,7 +236,6 @@ def process_project(project):
     clusters = project['clusters']
     name = project['name']
 
-    # Set up logging for this project
     logger = setup_logging(project['name'])
     
     start_outage_for_project(api_user, api_key, project_id, clusters, db_username, db_password, logger, name)
@@ -270,14 +246,12 @@ def main(yaml_file):
     
     show_disclaimer(config.get('disclaimer_agreement', 'no'))  # Print disclaimer directly
 
-    threads = []
-    for project in config['projects']:
-        thread = threading.Thread(target=process_project, args=(project,))
-        threads.append(thread)
-        thread.start()
-
-    for thread in threads:
-        thread.join()
+    # Using ThreadPoolExecutor with a max number of workers
+    max_workers = min(32, os.cpu_count() + 4)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_project, project) for project in config['projects']]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()  # Raises any exceptions caught during execution
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
