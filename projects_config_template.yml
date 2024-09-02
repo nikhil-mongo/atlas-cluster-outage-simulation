@@ -1,3 +1,5 @@
+#Ensure to update these values are per the environment.
+
 projects:
   - name: ""
     project_id: ""
@@ -24,5 +26,3 @@ projects:
         cloud_provider: "AWS"
 
 disclaimer_agreement: "yes"
-
-//Ensure to update these values are per the environment.
