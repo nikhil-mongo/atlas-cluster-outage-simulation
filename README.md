@@ -1,4 +1,19 @@
 # atlas-cluster-outage-simulation
+
+    ****************************************************************************************************
+    WARNING: USE THIS SCRIPT AT YOUR OWN RISK
+    
+    This script is not owned, maintained, or supported by MongoDB, Inc. or any of its employees. 
+    By using this script, you acknowledge that any unforeseen consequences or damages resulting 
+    from its use are your own responsibility. MongoDB, Inc. and its employees shall not be held 
+    liable for any loss, damage, or legal implications that may arise from the use of this script.
+    
+    IMPORTANT: It is highly recommended that you test this script in a non-risk environment 
+    before deploying it in a production environment. Proceed with caution and ensure you fully 
+    understand the impact of the actions this script will perform.
+    
+    ****************************************************************************************************
+
 These are the scripts that can be used to create and end the outage simulation for region failover.
 
 Run the simulate_multiregion.py as below:
