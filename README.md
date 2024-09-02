@@ -14,7 +14,7 @@
     
     ****************************************************************************************************
 
-These are the scripts that can be used to create and end the outage simulation for region failover.
+These are the scripts that can be used to create and end the outage simulation for region failover. This script matches the list of region by getting the cluster details and if the region_name in the yml file matches one of the regions, it will bring DOWN that mentioned region. Also, this will print the list of nodes with their replState every 5 mins during the simulation.
 
 Run the simulate_multiregion.py as below:
 
