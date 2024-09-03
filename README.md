@@ -37,7 +37,7 @@ python3 end_outage.py projects_config_template.yml
 
 ```
 
-The end script will ensure tha the outage ends on all the clusters, and will log the execution.
+The end script will ensure that the outage ends on all the clusters, and will log the execution.
 
 **The disclaimer statement is auto-accepted as per the value `YES` in the yml file. Please read the disclaimer and use the script at your own discretion.**
 
